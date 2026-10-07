@@ -1,0 +1,30 @@
+[project]
+name = "quorum"
+version = "0.1.0"
+description = "Multi-agent equity research desk: five AI style analysts, a bull/bear/judge debate, an earnings desk, and a paper portfolio graded out of sample."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.11",
+    "feedparser>=6.0",
+    "jinja2>=3.1",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "requests>=2.32",
+    "yfinance>=0.2.50",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.8"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501", "SIM108"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

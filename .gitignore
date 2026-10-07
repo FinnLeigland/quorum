@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.claude/launch.json
+.claude/settings.local.json
+_site/
+_demo/
+data/demo.db
+.DS_Store
+dist/

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "macros.html" import term %}
+{% block title %}Audit trail | {% endblock %}
+{% block content %}
+{% set v = trail.verify %}
+<div class="page-head">
+  <h1>Audit trail</h1>
+  <p>Every run, what it used and what it cost, and proof that no past decision has been edited since the day it was made.</p>
+</div>
+
+<section class="halves">
+  <div class="panel integrity">
+    <div class="label">Record integrity</div>
+    {% if v.ok and v.n %}
+    <div class="status ok">Verified</div>
+    <p class="ink2">{{ v.n }} sessions sealed into a {{ term('hash chain', 'chain') }}. Recomputed from the database on every build.</p>
+    <div class="hash mono" title="{{ v.head }}">{{ v.head[:16] }}&hellip;{{ v.head[-8:] }}</div>
+    {% elif v.ok %}
+    <div class="status">Empty</div>
+    <p class="ink2">The chain starts with the first daily run.</p>
+    {% else %}
+    <div class="status bad">Broken at {{ v.broken_at }}</div>
+    <p class="ink2">{{ v.reason|capitalize }}.</p>
+    {% endif %}
+    <p class="note">Check it yourself: <code>python -m quorum.ledger verify</code>{% if config.REPO_URL %}, or see the <a href="{{ config.REPO_URL }}/commits/main/data/quorum.db">commit history of the database</a>{% endif %}.</p>
+  </div>
+  <div class="panel">
+    <div class="chart-head"><h2>Data checks, last run</h2>{% if info.last %}<span class="muted" style="font-size:13px">{{ info.last|nice_date }}</span>{% endif %}</div>
+    {% if trail.last_checks %}
+    <ul class="checks">
+      {% for c in trail.last_checks %}
+      <li class="{{ 'ok' if c.ok else ('fail' if c.blocking else 'warn') }}">
+        <span class="mark" aria-hidden="true"></span>
+        <div><b>{{ c.check }}</b><span>{{ c.detail }}</span></div>
+        <span class="sr-only">{{ 'passed' if c.ok else 'failed' }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="note">A failed blocking check halts new positions for the day; open positions are still managed.</p>
+    {% else %}
+    <div class="empty"><div><b>No runs yet</b>Checks appear after the first run.</div></div>
+    {% endif %}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><div><h2>Run log</h2><p>{{ term('Prompt version', 'prompt') }} changes whenever any agent's instructions change; code version is the commit that ran.</p></div></div>
+  {% if trail.runs %}
+  <div class="table-tools">
+    <label class="sr-only" for="f-runs">Filter runs</label>
+    <input type="search" id="f-runs" data-filter="t-runs" placeholder="Filter by date, model or version">
+    <span class="count" data-count="t-runs" aria-live="polite"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="sortable" id="t-runs">
+      <caption class="sr-only">Every pipeline run</caption>
+      <thead><tr><th>Session</th><th>Status</th><th>Model</th><th class="n">Calls</th><th class="n">Tokens in</th><th class="n">Tokens out</th><th class="n">Cost</th><th class="n">Time</th><th>Prompt</th><th>Code</th><th>Seal</th></tr></thead>
+      <tbody>
+      {% for r in trail.runs %}
+        <tr>
+          <td class="mono" data-v="{{ r.date }}" style="white-space:nowrap">{{ r.date|nice_date("%b %-d, %Y") }}</td>
+          <td>{% if r.halted %}<span class="tag">Halted</span>{% elif r.mock %}<span class="tag">Demo</span>{% else %}<span class="tag enter">Live</span>{% endif %}</td>
+          <td class="mono" style="font-size:12.5px">{{ r.model or '-' }}</td>
+          <td class="n">{{ r.calls or 0 }}</td>
+          <td class="n">{{ (r.input_tokens or 0)|num(0) }}</td>
+          <td class="n">{{ (r.output_tokens or 0)|num(0) }}</td>
+          <td class="n">{{ (r.cost_usd or 0)|money(2) }}</td>
+          <td class="n">{{ r.duration_s|num(0) if r.duration_s is not none else '-' }}s</td>
+          <td class="mono" style="font-size:12.5px">{{ (r.prompt_version or '-')[:8] }}</td>
+          <td class="mono" style="font-size:12.5px">{{ (r.code_version or '-')[:8] }}</td>
+          <td class="mono" style="font-size:12.5px" title="{{ r.hash or '' }}">{{ (r.hash or '-')[:10] }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><div><b>No runs yet</b>The log fills in with the first daily run.</div></div>
+  {% endif %}
+</section>
+{% endblock %}

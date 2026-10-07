@@ -1,0 +1,28 @@
+{% macro sp(v, d=1) -%}<span class="num {{ v|tone }}">{{ v|pct(d, true) }}</span>{%- endmacro %}
+{% macro ic(v) -%}{% if v is none %}<span class="muted">n/a</span>{% else %}<span class="num {{ v|tone }}">{{ v|num(3, true) }}</span>{% endif %}{%- endmacro %}
+{% macro conv(c) -%}<span class="num{% if c > config.CONVICTION_ENTRY %} gold{% endif %}">{{ c|int }}</span>{%- endmacro %}
+{% macro term(label, key) -%}<span class="term" data-tip="{{ TIPS[key] }}">{{ label }}</span>{%- endmacro %}
+{% macro decision(d) -%}
+{%- if d == 'enter' %}<span class="tag enter">Entered</span>{% elif d == 'full' %}<span class="tag">Book full</span>{% else %}<span class="tag">Passed</span>{% endif -%}
+{%- endmacro %}
+{% macro weight(w) -%}
+{%- if w is not none %}{{ w|pct(0) }}<span class="bar" style="width: {{ (w * 110)|round(0) }}px" aria-hidden="true"></span>{% else %}<span class="muted">-</span>{% endif -%}
+{%- endmacro %}
+{% macro heat(s) -%}
+{%- if s is none %}<td class="heat muted">n/a</td>
+{%- else %}{% set a = (s|abs) / 100 %}<td class="heat" style="background: {% if s > 0 %}rgba(169,133,43,{{ '%.2f'|format(a * 0.5) }}){% else %}rgba(68,71,78,{{ '%.2f'|format(a * 0.28) }}){% endif %}">{{ s|num(0, true) }}</td>{% endif -%}
+{%- endmacro %}
+{% macro hypotheses(hyps) -%}
+<div class="hyps card">
+  {% for h in hyps %}
+  <div class="hyp">
+    <div class="id mono">{{ h.id }}</div>
+    <div class="claim">{{ h.claim }}</div>
+    <div class="state">
+      {% if h.status == 'supported' %}<span class="tag hit">Supported</span>{% elif h.status == 'not supported' %}<span class="tag">Not supported</span>{% else %}<span class="tag">Pending</span>{% endif %}
+      <div class="prog mono">{{ h.n }} / {{ h.min }} {{ h.unit }}{% if h.stat is not none %} &middot; {% if h.kind == 't' %}t {{ h.stat|num(2) }}{% elif h.kind == 'brier' %}Brier {{ h.stat|num(3) }}{% elif h.kind == 'pct' %}{{ h.stat|pct(2, true) }}{% elif h.kind == 'rate' %}{{ h.stat|pct(0) }}{% else %}{{ h.stat|num(2, true) }}{% endif %}{% endif %}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{%- endmacro %}

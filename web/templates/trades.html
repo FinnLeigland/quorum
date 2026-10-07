@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "macros.html" import sp, conv, term %}
+{% block title %}Trades | {% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Trades</h1>
+  <p>Each position risks {{ (config.RISK_PER_TRADE * 100)|num(2) }}% of equity to a {{ config.STOP_ATR }} {{ term('ATR', 'atr') }} stop ({{ (config.RISK_PER_EVENT * 100)|num(2) }}% on the earnings desk). Fills at the next open, {{ config.COST_BPS|int }} bps each way.</p>
+</div>
+
+<section>
+  <div class="stats">
+    <div><div class="k">Closed trades</div><div class="v">{{ trades.n }}</div></div>
+    <div><div class="k">Win rate</div><div class="v">{{ trades.win_rate|pct(0) }}</div></div>
+    <div><div class="k">Average {{ term('R', 'r') }}</div><div class="v {{ trades.avg_r|tone }}">{{ trades.avg_r|num(2, true) }}</div></div>
+    <div><div class="k">{{ term('Profit factor', 'pf') }}</div><div class="v">{{ trades.profit_factor|num(2) }}</div></div>
+    <div><div class="k">Avg hold, days</div><div class="v">{{ trades.avg_hold|num(1) }}</div></div>
+    <div><div class="k">Realized P&amp;L</div><div class="v {{ trades.pnl|tone }}">{{ trades.pnl|money }}</div></div>
+  </div>
+  <p class="note">Core book {{ trades.by_book.core.n }} trades, {{ trades.by_book.core.win_rate|pct(0) }} won. Earnings desk {{ trades.by_book.earnings.n }} trades, {{ trades.by_book.earnings.win_rate|pct(0) }} won.</p>
+</section>
+
+<section>
+  <div class="sec-head"><h2>Open positions</h2></div>
+  {% if holdings %}
+  <div class="table-wrap">
+    <table class="sortable">
+      <caption class="sr-only">Open positions</caption>
+      <thead><tr><th>Name</th><th>Book</th><th>Entered</th><th class="n">Entry</th><th class="n">Last</th><th class="n">Return</th><th class="n">Stop</th><th class="n">Weight</th><th class="n">Conviction</th></tr></thead>
+      <tbody>
+      {% for h in holdings %}
+        <tr>
+          <td><span class="tk">{{ h.ticker }}</span><span class="sub">{{ h.name }}</span></td>
+          <td>{{ h.book_label }}</td>
+          <td class="mono" data-v="{{ h.entry_date }}">{{ h.entry_date|nice_date("%b %-d") }}</td>
+          <td class="n">{{ h.entry_price|num(2) }}</td>
+          <td class="n">{{ h.last|num(2) }}</td>
+          <td class="n">{{ sp(h.ret) }}</td>
+          <td class="n">{{ h.stop|num(2) }}</td>
+          <td class="n">{{ h.weight|pct(1) }}</td>
+          <td class="n">{% if h.conviction is not none %}{{ conv(h.conviction) }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><div><b>No open positions</b>The book is in cash.</div></div>
+  {% endif %}
+  {% if trades.pending %}
+  <p class="note"><b style="font-weight:500;color:var(--ink)">Next open:</b>
+    {% for o in trades.pending %}{{ 'buy' if o.side == 'buy' else 'sell' }} {{ o.ticker }} ({{ o.reason }}){{ ', ' if not loop.last }}{% endfor %}.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="sec-head"><h2>Closed trades</h2></div>
+  {% if trades.trades %}
+  <div class="table-tools">
+    <label class="sr-only" for="f-trades">Filter trades</label>
+    <input type="search" id="f-trades" data-filter="t-trades" placeholder="Filter by ticker, name or exit">
+    <span class="count" data-count="t-trades" aria-live="polite"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="sortable" id="t-trades">
+      <caption class="sr-only">Closed trades with the judge's reasoning</caption>
+      <thead><tr><th>Name</th><th>Exited</th><th class="n">Days</th><th class="n">Return</th><th class="n">R</th><th class="n">P&amp;L</th><th>Exit</th><th class="n">Conviction</th><th data-nosort>Why it was bought</th></tr></thead>
+      <tbody>
+      {% for t in trades.trades %}
+        <tr>
+          <td><span class="tk">{{ t.ticker }}</span><span class="sub">{{ t.name }}{% if t.book == 'earnings' %} &middot; Earnings{% endif %}</span></td>
+          <td class="mono" data-v="{{ t.exit_date }}" style="white-space:nowrap">{{ t.exit_date|nice_date("%b %-d") }}</td>
+          <td class="n">{{ t.days_held }}</td>
+          <td class="n">{{ sp(t.ret) }}</td>
+          <td class="n {{ t.r_multiple|tone }}">{{ t.r_multiple|num(2, true) }}</td>
+          <td class="n {{ t.pnl|tone }}">{{ t.pnl|money }}</td>
+          <td style="white-space:nowrap">{{ t.exit_reason|capitalize }}</td>
+          <td class="n">{% if t.conviction is not none %}{{ conv(t.conviction) }}{% endif %}</td>
+          <td class="why"><span class="clamp">{% if t.debate_date %}<a href="debates/{{ t.debate_date }}.html#{{ t.book }}-{{ t.ticker }}" style="text-decoration:none">{{ t.verdict }}</a>{% endif %}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><div><b>No closed trades yet</b>Trades appear here with their reasoning once they exit.</div></div>
+  {% endif %}
+</section>
+{% endblock %}

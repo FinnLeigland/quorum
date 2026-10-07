@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% from "macros.html" import sp, ic, conv, term, weight %}
+{% block content %}
+{% set s = perf.stats %}
+{% set comp = card.table | selectattr('agent', 'equalto', 'composite') | first %}
+<section class="hero">
+  <div>
+    <h1><span>AI analysts argue.</span>Every call is graded.</h1>
+    <p class="lede">Five analysts score 50 large caps daily. A bull and a bear debate the leaders, and a judge sets conviction.</p>
+    <div class="cta">
+      <a class="btn primary" href="debates.html">Read the debates</a>
+      <a class="btn ghost" href="method.html">How it works</a>
+    </div>
+  </div>
+  <div class="factsheet" aria-label="Performance summary">
+    {% if s %}
+    <div class="top">
+      <div class="label">Paper portfolio since {{ s.start|nice_date }}</div>
+      <div class="big {{ s.total|tone }}">{{ s.total|pct(2, true) }}</div>
+      <div class="vs">S&amp;P 500 {{ s.bench|pct(2, true) }} &nbsp;&middot;&nbsp; {{ term('Excess', 'excess') }} <span class="num {{ s.excess|tone }}">{{ (s.excess * 100)|num(2, true) }} pts</span></div>
+    </div>
+    <dl>
+      <div><dt>{{ term('Sharpe ratio', 'sharpe') }}</dt><dd>{{ s.sharpe|num(2) }}</dd></div>
+      <div><dt>Max drawdown</dt><dd>{{ s.max_dd|pct(1) }}</dd></div>
+      <div><dt>Committee {{ term('IC', 'ic') }}, 5-day</dt><dd>{{ ic(comp.ic5.mean_ic) }}</dd></div>
+      <div><dt>Positions</dt><dd>{{ s.positions }} <span class="muted" style="font-size:13px">of {{ config.MAX_POSITIONS }}</span></dd></div>
+    </dl>
+    <a class="seal{% if not integrity.ok %} bad{% endif %}" href="audit.html">
+      {% if integrity.ok %}<span class="mark" aria-hidden="true"></span>Record verified: {{ integrity.n }} sealed sessions{% else %}Record check failed at {{ integrity.broken_at }}{% endif %}
+      <span class="go">Audit trail</span>
+    </a>
+    {% else %}
+    <div class="top"><div class="label">Paper portfolio</div><div class="big">{{ config.START_EQUITY|money }}</div><div class="vs">Starting capital. The record opens with the first daily run.</div></div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel" aria-labelledby="growth">
+  <div class="chart-head">
+    <h2 id="growth">Growth of 100</h2>
+    <div class="legend"><span style="--c: var(--gold)">Quorum</span><span style="--c: #8f9198">S&amp;P 500</span></div>
+  </div>
+  {% if perf.series and perf.series.dates|length > 1 %}
+  <div class="chart"><canvas id="eq" role="img" aria-label="Portfolio value against the S&amp;P 500, indexed to 100. Quorum {{ s.total|pct(1, true) }}, S&amp;P 500 {{ s.bench|pct(1, true) }}."></canvas></div>
+  <div class="chart-sub">Drawdown from peak</div>
+  <div class="chart short"><canvas id="dd" role="img" aria-label="Portfolio drawdown from its running peak, worst {{ s.max_dd|pct(1) }}"></canvas></div>
+  {% else %}
+  <div class="empty"><div><b>No history yet</b>The chart starts after the second trading day.</div></div>
+  {% endif %}
+</section>
+
+{% set n = info.last_notes or {} %}
+{% set entered = latest | selectattr('decision', 'equalto', 'enter') | list %}
+{% set full = latest | selectattr('decision', 'equalto', 'full') | list | length %}
+<section aria-labelledby="last">
+  <div class="sec-head"><h2 id="last">Last session{% if info.last %}, {{ info.last|nice_date("%b %-d") }}{% endif %}</h2></div>
+  <div class="flow">
+    <div><div class="n">{{ config.UNIVERSE|length }}</div><div class="t">Scored</div><div class="d">by {{ (n.analysts or [])|length }} analysts</div></div>
+    <div><div class="n">{{ latest | selectattr('book', 'equalto', 'core') | list | length }}</div><div class="t">Debated</div><div class="d">top of the composite</div></div>
+    <div><div class="n">{{ latest | selectattr('book', 'equalto', 'earnings') | list | length }}</div><div class="t">Earnings</div><div class="d">reports debated</div></div>
+    <div class="key"><div class="n">{{ latest | selectattr('conviction', 'gt', config.CONVICTION_ENTRY) | list | length }}</div><div class="t">Above {{ config.CONVICTION_ENTRY }}</div><div class="d">judge conviction</div></div>
+    <div><div class="n">{{ entered|length }}</div><div class="t">Orders</div><div class="d">{% if full %}{{ full }} held back, book full{% else %}fill at the next open{% endif %}</div></div>
+  </div>
+</section>
+
+<section class="split">
+  <div>
+    <div class="sec-head"><h2>Holdings</h2><a class="more" href="trades.html">All trades</a></div>
+    {% if holdings %}
+    <div class="table-wrap">
+      <table class="sortable">
+        <caption class="sr-only">Open positions</caption>
+        <thead><tr><th>Name</th><th class="n">Weight</th><th class="n">Return</th><th class="n">To stop</th><th class="n">Days</th><th class="n">Conviction</th></tr></thead>
+        <tbody>
+        {% for h in holdings %}
+          <tr>
+            <td><span class="tk">{{ h.ticker }}</span><span class="sub">{{ h.name }}{% if h.book == 'earnings' %} &middot; Earnings{% endif %}</span></td>
+            <td class="n">{{ h.weight|pct(1) }}</td>
+            <td class="n">{{ sp(h.ret) }}</td>
+            <td class="n muted">{{ h.to_stop|pct(1) }}</td>
+            <td class="n">{{ h.days_held }}</td>
+            <td class="n">{% if h.conviction is not none %}{{ conv(h.conviction) }}{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty"><div><b>No open positions</b>A position opens when the judge's conviction clears {{ config.CONVICTION_ENTRY }}.</div></div>
+    {% endif %}
+  </div>
+  <div>
+    <div class="sec-head"><h2>Latest verdicts</h2><a class="more" href="debates.html">All debates</a></div>
+    {% if latest %}
+    <div class="verdicts">
+      {% for d in (latest | sort(attribute='conviction', reverse=true))[:6] %}
+      <a href="debates.html#{{ d.book }}-{{ d.ticker }}">
+        <span class="tk">{{ d.ticker }}</span>
+        <span class="v">{{ d.judge.verdict }}</span>
+        <span class="c{% if d.conviction > config.CONVICTION_ENTRY %} gold{% endif %}">{{ d.conviction|int }}<small>{{ d.book_label }}</small></span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty"><div><b>No debates yet</b>The first run writes them.</div></div>
+    {% endif %}
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div><h2>Who adds value?</h2><p>Each analyst's 5-day {{ term('IC', 'ic') }} against the plain factor it was given.</p></div>
+    <a class="more" href="attribution.html">Full attribution</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <caption class="sr-only">Analyst information coefficients</caption>
+      <thead><tr><th>Analyst</th><th class="n">PM weight</th><th class="n">IC, 5-day</th><th class="n">Plain factor</th><th class="n">{{ term('Value added', 'edge') }}</th></tr></thead>
+      <tbody>
+      {% for r in card.table %}
+        <tr{% if r.agent == 'composite' %} class="lead"{% endif %}>
+          <td>{{ r.label }}</td>
+          <td class="n">{{ weight(r.weight) }}</td>
+          <td class="n">{{ ic(r.ic5.mean_ic) }}</td>
+          <td class="n">{{ ic(r.factor_ic5) }}</td>
+          <td class="n">{{ ic(r.edge) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+{% if perf.series and perf.series.dates|length > 1 %}
+<script type="application/json" id="perf">{{ perf.series|tojson }}</script>
+<script>document.addEventListener("DOMContentLoaded", () => { const s = Q.read("perf"); Q.equity("eq", s); Q.drawdown("dd", s); });</script>
+{% endif %}
+{% endblock %}

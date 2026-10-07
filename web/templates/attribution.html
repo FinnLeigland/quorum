@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "macros.html" import ic, heat, term, weight, hypotheses %}
+{% block title %}Attribution | {% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Attribution</h1>
+  <p>Which part of the process adds value. Every score is graded against the return that followed; an {{ term('IC', 'ic') }} of 0.05 held steadily is a useful equity signal.</p>
+</div>
+
+<section aria-labelledby="hyp">
+  <div class="sec-head">
+    <div><h2 id="hyp">Pre-registered hypotheses</h2><p>Fixed on {{ REGISTERED|nice_date }}, before the live record began. Each is judged only once its minimum sample is met.</p></div>
+    <a class="more" href="method.html#registered">Why pre-register</a>
+  </div>
+  {{ hypotheses(hyps) }}
+</section>
+
+<section aria-labelledby="board">
+  <div class="sec-head"><h2 id="board">Analyst leaderboard</h2></div>
+  <div class="table-wrap">
+    <table class="sortable">
+      <caption class="sr-only">Information coefficient by analyst</caption>
+      <thead>
+        <tr>
+          <th>Agent</th><th class="n">PM weight</th>
+          <th class="n">IC, 5-day</th><th class="n">{{ term('t-stat', 'tstat') }}</th><th class="n">Days IC &gt; 0</th>
+          <th class="n">IC, 21-day</th><th class="n">t-stat, 21-day</th>
+          <th class="n">Plain factor</th><th class="n">{{ term('Value added', 'edge') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in card.table %}
+        <tr{% if r.agent == 'composite' %} class="lead"{% endif %}>
+          <td>{{ r.label }}</td>
+          <td class="n" data-v="{{ r.weight if r.weight is not none else '' }}">{{ weight(r.weight) }}</td>
+          <td class="n">{{ ic(r.ic5.mean_ic) }}</td>
+          <td class="n">{{ r.ic5.t_stat|num(2) }}</td>
+          <td class="n">{{ r.ic5.hit_rate|pct(0) }}</td>
+          <td class="n">{{ ic(r.ic21.mean_ic) }}</td>
+          <td class="n">{{ r.ic21.t_stat|num(2) }}</td>
+          <td class="n">{{ ic(r.factor_ic5) }}</td>
+          <td class="n">{{ ic(r.edge) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Plain factor and value added use the 5-day horizon. The PM composite is compared with an equal-weight blend of the five factors.</p>
+</section>
+
+<section aria-labelledby="roll">
+  <div class="sec-head">
+    <div><h2 id="roll">Rolling IC</h2><p>20-day average, analyst against its own plain factor.</p></div>
+    <div class="legend"><span style="--c: var(--gold)">Analyst</span><span style="--c: #8f9198">Plain factor</span></div>
+  </div>
+  {% if card.multiples %}
+  <div class="multiples">
+    {% for m in card.multiples %}
+    <div class="panel">
+      <div class="head"><h3>{{ m.label }}</h3><span class="stat">{{ m.mean|num(3, true) if m.mean is not none else 'n/a' }}</span></div>
+      <div class="chart mini"><canvas id="m-{{ m.agent }}" role="img" aria-label="Rolling IC for {{ m.label }}, mean {{ m.mean|num(3, true) if m.mean is not none else 'not available' }}"></canvas></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty"><div><b>Nothing graded yet</b>Grades start {{ config.IC_HORIZON }} trading days after the first run.</div></div>
+  {% endif %}
+</section>
+
+<section class="halves" aria-label="Judge calibration">
+  {% for title, rec, horizon in [('Core book judge', card.judge_core, config.CORE_HORIZON), ('Earnings desk judge', card.judge_earn, config.EARNINGS_HORIZON)] %}
+  <div class="panel">
+    <div class="chart-head">
+      <div><h2>{{ title }}</h2><p class="muted" style="font-size:13.5px;margin-top:2px">Calibrated bars sit on the line. {{ horizon }}-day horizon.</p></div>
+      <div class="legend"><span style="--c: var(--gold)">Beat S&amp;P 500</span><span style="--c: #8f9198">Avg conviction</span></div>
+    </div>
+    {% if rec.n %}
+    <div class="stats" style="margin:12px 0 14px">
+      <div><div class="k">Graded calls</div><div class="v">{{ rec.n }}</div></div>
+      <div><div class="k">Direction right</div><div class="v">{{ rec.hit_rate|pct(0) }}</div></div>
+      <div><div class="k">Rank IC</div><div class="v">{{ rec.ic|num(3, true) }}</div></div>
+      <div><div class="k">{{ term('Brier', 'brier') }}</div><div class="v">{{ rec.brier|num(3) }}</div></div>
+    </div>
+    <div class="chart" style="height:210px"><canvas id="cal-{{ loop.index }}" role="img" aria-label="{{ title }}: realized beat rate by conviction bucket"></canvas></div>
+    {% else %}
+    <div class="empty" style="margin-top:12px"><div><b>No graded calls yet</b>Calls are graded {{ horizon }} trading days after the debate.</div></div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<section aria-labelledby="today">
+  <div class="sec-head"><div><h2 id="today">Today's committee</h2><p>{{ info.last|nice_date if info.last else '' }}. Each analyst's read, then every score behind the composite.</p></div></div>
+  {% if today.notes %}
+  <div class="card notes">
+    {% for a in config.ANALYSTS if today.notes.get(a) %}
+    <div><h3>{{ config.ANALYST_LABELS[a] }}</h3><p>{{ today.notes[a] }}</p></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if today.rows %}
+  <div class="table-tools" style="margin-top:20px">
+    <label class="sr-only" for="f-committee">Filter names</label>
+    <input type="search" id="f-committee" data-filter="t-committee" placeholder="Filter by ticker, name or sector">
+    <span class="count" data-count="t-committee" aria-live="polite"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="sortable" id="t-committee">
+      <caption class="sr-only">Today's analyst scores, sorted by composite</caption>
+      <thead><tr><th class="n">#</th><th>Name</th><th class="n">Composite</th>{% for a in config.ANALYSTS %}<th class="n" style="text-align:center">{{ config.ANALYST_LABELS[a] }}</th>{% endfor %}<th data-nosort>Lead rationale</th></tr></thead>
+      <tbody>
+      {% for r in today.rows %}
+        <tr>
+          <td class="n muted">{{ r.rank }}</td>
+          <td><span class="tk">{{ r.ticker }}</span><span class="sub">{{ r.sector }}</span></td>
+          <td class="n"><b>{{ r.composite|num(1, true) }}</b></td>
+          {% for a in config.ANALYSTS %}{{ heat(r.scores[a]) }}{% endfor %}
+          <td class="why"><span class="clamp">{% if r.lead %}<b style="font-weight:500">{{ config.ANALYST_LABELS[r.lead] }}:</b> {{ r.why[r.lead] }}{% endif %}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="mult">{{ card.multiples|tojson }}</script>
+<script type="application/json" id="cal">{{ [card.judge_core.calibration, card.judge_earn.calibration]|tojson }}</script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const mult = Q.read("mult");
+  // One y-range for every panel, so the analysts can be compared at a glance
+  const peak = Math.max(0.1, ...mult.flatMap((m) => m.ic.concat(m.base)).filter((x) => x != null).map(Math.abs));
+  const range = Math.ceil(peak * 10) / 10;
+  mult.forEach((m) => Q.mini("m-" + m.agent, m.dates, m.ic, m.base, range));
+  Q.read("cal").forEach((rows, i) => { if (rows.length && document.getElementById("cal-" + (i + 1))) Q.calibration("cal-" + (i + 1), rows); });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% from "macros.html" import decision, term %}
+{% block title %}Debates{% if date %} {{ date }}{% endif %} | {% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Debates</h1>
+  <p>A bull and a bear argue each shortlisted name without seeing each other. The judge reads both and states the {{ term('conviction', 'conviction') }} that the stock beats the S&amp;P 500. Above {{ config.CONVICTION_ENTRY }}, it is bought.</p>
+</div>
+
+{% if date %}
+<div class="day-nav">
+  <div>
+    <h2>{{ date|nice_date("%A, %B %-d, %Y") }}</h2>
+    <div class="meta">
+      {{ debates|selectattr('book','equalto','core')|list|length }} core &nbsp;&middot;&nbsp;
+      {{ debates|selectattr('book','equalto','earnings')|list|length }} earnings &nbsp;&middot;&nbsp;
+      {{ debates|selectattr('decision','equalto','enter')|list|length }} entered
+    </div>
+  </div>
+  <div class="ctl">
+    <a class="btn ghost small" {% if older %}href="{{ prefix }}debates/{{ older }}.html"{% else %}aria-disabled="true"{% endif %} aria-label="Previous session">&larr; Previous</a>
+    <label class="sr-only" for="day">Session</label>
+    <select id="day" onchange="location.href = this.value">
+      {% for d in dates %}<option value="{{ prefix }}debates/{{ d }}.html"{% if d == date %} selected{% endif %}>{{ d|nice_date("%b %-d, %Y") }}</option>{% endfor %}
+    </select>
+    <a class="btn ghost small" {% if newer %}href="{{ prefix }}debates/{{ newer }}.html"{% else %}aria-disabled="true"{% endif %} aria-label="Next session">Next &rarr;</a>
+  </div>
+</div>
+
+<nav class="jump" aria-label="Debates on this day">
+  {% for d in debates %}<a href="#{{ d.book }}-{{ d.ticker }}"{% if d.conviction > config.CONVICTION_ENTRY %} class="over"{% endif %}>{{ d.ticker }}<span>{{ d.conviction|int }}{% if d.book == 'earnings' %} &middot; E{% endif %}</span></a>{% endfor %}
+</nav>
+
+{% for d in debates %}
+<article class="debate" id="{{ d.book }}-{{ d.ticker }}" aria-labelledby="h-{{ d.book }}-{{ d.ticker }}">
+  <div class="d-head">
+    <div>
+      <div class="d-title"><span class="tk" id="h-{{ d.book }}-{{ d.ticker }}">{{ d.ticker }}</span><span class="nm">{{ d.name }}</span><span class="tag">{{ d.book_label }}</span>{{ decision(d.decision) }}</div>
+      <div class="chips">
+        {% if d.dossier.committee %}
+          {% for a in config.ANALYSTS if d.dossier.committee.get(a) %}<span class="chip">{{ config.ANALYST_LABELS[a] }} <b>{{ d.dossier.committee[a].score|num(0, true) }}</b></span>{% endfor %}
+          {% if d.dossier.committee_composite is not none %}<span class="chip">Composite <b>{{ d.dossier.committee_composite|num(1, true) }}</b></span>{% endif %}
+        {% endif %}
+        {% if d.realized is not none %}<span class="chip">Realized vs SPY <b class="{{ d.realized|tone }}">{{ d.realized|pct(1, true) }}</b></span>{% endif %}
+      </div>
+    </div>
+    <div class="conv">
+      <div class="val{% if d.conviction > config.CONVICTION_ENTRY %} over{% endif %}">{{ d.conviction|int }}</div>
+      <div class="lbl">conviction, next {{ d.horizon }} sessions</div>
+      <div class="scale" aria-hidden="true"><span class="tick" style="left: {{ config.CONVICTION_ENTRY }}%"></span><span class="dot" style="left: {{ d.conviction }}%"></span></div>
+    </div>
+  </div>
+  {% if d.event %}
+  <div class="event-row">
+    <div><span>Reported</span><b>{{ d.event.released }}</b></div>
+    <div><span>EPS</span><b>{{ d.event.eps_actual|num(2) }}</b> <span>vs</span><b>{{ d.event.eps_estimate|num(2) }}</b></div>
+    <div><span>Surprise</span><b class="{{ d.event.surprise_pct|tone }}">{{ d.event.surprise_pct|num(1, true) }}%</b></div>
+    <div><span>Day one vs SPY</span><b class="{{ d.event.day1_excess_pct|tone }}">{{ d.event.day1_excess_pct|num(1, true) }}%</b></div>
+    <div><span>Volume vs 20d</span><b>{{ d.event.volume_vs_20d|num(1) }}x</b></div>
+  </div>
+  {% endif %}
+  <div class="cases">
+    {% for side, label in [('bull', 'Bull case'), ('bear', 'Bear case')] %}
+    {% set c = d[side] %}
+    <div class="case {{ side }}">
+      <h4>{{ label }}</h4>
+      <p class="thesis">{{ c.thesis }}</p>
+      <ol>{% for arg in c.arguments %}<li><div><b>{{ arg.point }}</b><span>{{ arg.evidence }}</span></div></li>{% endfor %}</ol>
+      {% if c.catalysts %}<p class="extra"><b>Catalysts.</b> {{ c.catalysts|join('; ') }}</p>{% endif %}
+      <p class="extra"><b>Would change my mind.</b> {{ c.would_change_my_mind }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="judge">
+    <div><h4>Verdict</h4><p>{{ d.judge.verdict }}</p></div>
+    <dl>
+      <div><dt>Decisive factor</dt><dd>{{ d.judge.decisive_factor }}</dd></div>
+      <div><dt>Key risk</dt><dd>{{ d.judge.key_risk }}</dd></div>
+    </dl>
+  </div>
+  {% if d.dossier.headlines %}
+  <div class="heads">
+    <details class="more"><summary>Headlines in the dossier ({{ d.dossier.headlines|length }})</summary>
+      <ul>{% for h in d.dossier.headlines %}<li>{{ h.title }} <span class="muted">{{ h.source }}, {{ h.date|nice_date("%b %-d") }}</span></li>{% endfor %}</ul>
+    </details>
+  </div>
+  {% endif %}
+</article>
+{% endfor %}
+{% else %}
+<div class="empty" style="margin-top:28px"><div><b>No debates yet</b>The first daily run writes them.</div></div>
+{% endif %}
+{% endblock %}

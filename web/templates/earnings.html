@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "macros.html" import sp, conv, term %}
+{% block title %}Earnings desk | {% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Earnings desk</h1>
+  <p>After each report, the same debate on the next {{ config.EARNINGS_HORIZON }} sessions: does the day-one move keep going or fade?</p>
+</div>
+
+<section>
+  <div class="stats">
+    <div><div class="k">Reports debated</div><div class="v">{{ earn.n }}</div></div>
+    <div><div class="k">Graded</div><div class="v">{{ earn.graded }}</div></div>
+    <div><div class="k">Direction right</div><div class="v">{{ earn.hit_rate|pct(0) }}</div></div>
+    <div><div class="k">Entered</div><div class="v">{{ earn.n_entered }}</div></div>
+    <div><div class="k">Avg 5-day {{ term('excess', 'excess') }}, entered</div><div class="v {{ earn.entered_avg|tone }}">{{ earn.entered_avg|pct(2, true) }}</div></div>
+  </div>
+</section>
+
+<section>
+  {% if earn.events %}
+  <div class="table-tools">
+    <label class="sr-only" for="f-earn">Filter reports</label>
+    <input type="search" id="f-earn" data-filter="t-earn" placeholder="Filter by ticker or name">
+    <span class="count" data-count="t-earn" aria-live="polite"></span>
+  </div>
+  <div class="table-wrap">
+    <table class="sortable" id="t-earn">
+      <caption class="sr-only">Earnings reports debated by the desk</caption>
+      <thead><tr><th>Date</th><th>Name</th><th class="n">EPS / est.</th><th class="n">Surprise</th><th class="n">Day one</th><th class="n">Conviction</th><th>Call</th><th class="n">Next 5 days</th><th>Result</th><th data-nosort>Verdict</th></tr></thead>
+      <tbody>
+      {% for e in earn.events %}
+        <tr>
+          <td class="mono" data-v="{{ e.date }}" style="white-space:nowrap"><a href="debates/{{ e.date }}.html#earnings-{{ e.ticker }}">{{ e.date|nice_date("%b %-d") }}</a></td>
+          <td><span class="tk">{{ e.ticker }}</span><span class="sub">{{ e.name }}</span></td>
+          <td class="n">{{ e.eps_actual|num(2) }} <span class="muted">/ {{ e.eps_estimate|num(2) }}</span></td>
+          <td class="n {{ e.surprise_pct|tone }}">{{ e.surprise_pct|num(1, true) }}%</td>
+          <td class="n {{ e.day1_excess|tone }}">{{ e.day1_excess|num(1, true) }}%</td>
+          <td class="n">{{ conv(e.conviction) }}</td>
+          <td>{{ e.call }}{% if e.decision == 'enter' %} <span class="tag enter">Entered</span>{% endif %}</td>
+          <td class="n">{% if e.realized is not none %}{{ sp(e.realized) }}{% else %}<span class="muted">pending</span>{% endif %}</td>
+          <td>{% if e.hit is none %}<span class="muted">-</span>{% elif e.hit %}<span class="tag hit">Right</span>{% else %}<span class="tag">Wrong</span>{% endif %}</td>
+          <td class="why"><span class="clamp">{{ e.verdict }}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Day one and next 5 days are returns over the S&amp;P 500. Click a column to sort, or a date to read the full debate.</p>
+  {% else %}
+  <div class="empty"><div><b>No reports yet</b>The desk debates the first session after each company in the universe reports.</div></div>
+  {% endif %}
+</section>
+{% endblock %}

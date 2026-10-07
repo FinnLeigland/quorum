@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Methodology | {% endblock %}
+{% from "macros.html" import hypotheses %}
+{% block content %}
+<div class="method-layout">
+  <nav class="toc" aria-label="On this page">
+    <a href="#question">The question</a>
+    <a href="#pipeline">Daily pipeline</a>
+    <a href="#committee">Committee</a>
+    <a href="#pm">Portfolio manager</a>
+    <a href="#debate">Debate and judge</a>
+    <a href="#earnings">Earnings desk</a>
+    <a href="#rules">Portfolio rules</a>
+    <a href="#grading">Grading</a>
+    <a href="#registered">Pre-registration</a>
+    <a href="#lookahead">No look-ahead</a>
+    <a href="#integrity">Record integrity</a>
+    <a href="#limits">Limitations</a>
+    <a href="#stack">Stack and cost</a>
+    <a href="#glossary">Glossary</a>
+  </nav>
+  <div class="prose">
+    <div class="page-head"><h1>Methodology</h1>
+      <p>Can a structured group of AI agents rank large-cap stocks better than the plain factors they're given, and does an adversarial debate improve the final call? Every decision is made before the outcome is known and graded after.</p>
+    </div>
+
+    <h2 id="question">The question</h2>
+    <p>Asking one model whether a stock is a buy invites anchoring and overconfidence. Quorum splits the job like an investment committee: specialists score independently, a portfolio manager trusts each by its track record, two advocates argue opposite sides blind, and a judge prices the result as a probability. Each layer is graded on its own, so the record shows where any edge comes from.</p>
+
+    <h2 id="pipeline">Daily pipeline</h2>
+    <div class="steps">
+      <div><h3>Fill and protect</h3><p>Yesterday's orders fill at today's open. Stops are checked against today's low.</p></div>
+      <div><h3>Grade</h3><p>Scores whose 5- or 21-session horizon has closed are matched to the realized return over SPY.</p></div>
+      <div><h3>Score</h3><p>Five analysts each score all {{ config.UNIVERSE|length }} names from &minus;100 to +100 using only their own evidence.</p></div>
+      <div><h3>Weigh</h3><p>The portfolio manager combines them by trailing IC and queues exits for names the committee has turned against.</p></div>
+      <div><h3>Debate</h3><p>The top {{ config.SHORTLIST }} names not already held go to a bull, a bear and a judge. Conviction above {{ config.CONVICTION_ENTRY }} queues a buy.</p></div>
+      <div><h3>Earnings</h3><p>Every name that reported since the last close gets the same debate on a five-session horizon.</p></div>
+      <div><h3>Publish</h3><p>The database is committed and this site is rebuilt from it.</p></div>
+    </div>
+
+    <h2 id="committee">Committee</h2>
+    <p>Each analyst sees a table of every name, limited to its discipline, with each field's percentile in that day's universe. Separate evidence keeps the five opinions independent.</p>
+    <ul>
+      <li><b>Value:</b> earnings and free-cash-flow yield, EV/EBITDA, price to book, dividend yield, plus the 12-month trend as a value-trap check.</li>
+      <li><b>Momentum:</b> 12-month return excluding the last month, 3- and 1-month returns, distance from the 50- and 200-day averages, strength against the sector.</li>
+      <li><b>Quality:</b> returns on equity and assets, margins, leverage, liquidity, revenue and earnings growth.</li>
+      <li><b>Macro:</b> rates, VIX, oil, the dollar and market trend, plus each stock's sector strength and its betas to rates, oil and the market.</li>
+      <li><b>Risk:</b> volatility, downside volatility, drawdown, beta, ATR as a share of price, and the 200-day trend.</li>
+    </ul>
+    <p>Every analyst is shadowed by a <b>plain factor</b>: the same evidence ranked by simple percentiles with no model. If an analyst's IC doesn't beat its factor's, the model adds cost and no information.</p>
+
+    <h2 id="pm">Portfolio manager</h2>
+    <p>The composite is a weighted average of the five scores. Weights start equal and move toward each analyst's share of positive trailing IC (last {{ config.IC_LOOKBACK }} graded days), reaching full trust after {{ config.IC_FULL_TRUST }}. No analyst goes below {{ (config.WEIGHT_BOUNDS[0]*100)|int }}% or above {{ (config.WEIGHT_BOUNDS[1]*100)|int }}%, so one lucky stretch can't hand the committee to a single voice.</p>
+
+    <h2 id="debate">Debate and judge</h2>
+    <p>The bull and the bear get the same dossier: the five scores and rationales, the full evidence, the macro dashboard and the week's headlines. They run in parallel, so neither can anchor on the other. Each returns a thesis, three arguments with evidence, catalysts, and what would change its mind.</p>
+    <p>The judge reads both in random order, to guard against position bias, and returns <b>conviction</b>: its probability that the stock beats the S&amp;P 500 over the next {{ config.CORE_HORIZON }} sessions. Because it's a probability, it can be tested: calls at 70 should beat the market about 70% of the time.</p>
+
+    <h2 id="earnings">Earnings desk</h2>
+    <p>A report before 9:30 ET trades that session; later reports trade the next. After the reaction day's close, the desk debates the next {{ config.EARNINGS_HORIZON }} sessions from the EPS surprise, the gap, the day-one move over SPY, volume and headlines. It has its own {{ config.EVENT_SLOTS }} slots, so a full core book never crowds it out.</p>
+
+    <h2 id="rules">Portfolio rules</h2>
+    <div class="table-wrap params" style="margin-top:14px">
+      <table>
+        <caption class="sr-only">Portfolio parameters</caption>
+        <tbody>
+          <tr><td>Starting capital</td><td class="n">{{ config.START_EQUITY|money }}</td></tr>
+          <tr><td>Universe</td><td class="n">{{ config.UNIVERSE|length }} large caps, 11 sectors</td></tr>
+          <tr><td>Entry</td><td class="n">Conviction &gt; {{ config.CONVICTION_ENTRY }}, long only</td></tr>
+          <tr><td>Fills</td><td class="n">Next open, {{ config.COST_BPS|int }} bps each way</td></tr>
+          <tr><td>Risk per trade, core / earnings</td><td class="n">{{ (config.RISK_PER_TRADE*100)|num(2) }}% / {{ (config.RISK_PER_EVENT*100)|num(2) }}% of equity</td></tr>
+          <tr><td>Initial / trailing stop</td><td class="n">{{ config.STOP_ATR }} ATR below entry / {{ config.TRAIL_ATR }} ATR below the high</td></tr>
+          <tr><td>Slots, core / earnings</td><td class="n">{{ config.CORE_SLOTS }} / {{ config.EVENT_SLOTS }}</td></tr>
+          <tr><td>Position cap, core / earnings</td><td class="n">{{ (config.MAX_WEIGHT*100)|int }}% / {{ (config.MAX_WEIGHT_EVENT*100)|int }}% of equity</td></tr>
+          <tr><td>Core exits</td><td class="n">Stop, {{ config.CORE_MAX_HOLD }} sessions, or composite in the bottom {{ (config.DOWNGRADE_PCTILE*100)|int }}%</td></tr>
+          <tr><td>Earnings exits</td><td class="n">Stop or {{ config.EARNINGS_HORIZON }} sessions</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>shares = equity &times; risk / ({{ config.STOP_ATR }} &times; ATR)</code>, so volatile names get smaller positions and every result reads in units of risk.</p>
+
+    <h2 id="grading">Grading</h2>
+    <ul>
+      <li><b>Analysts:</b> daily rank IC against 5- and 21-session excess returns; t-statistics use non-overlapping dates only.</li>
+      <li><b>Judge:</b> conviction buckets against the realized beat rate, plus the Brier score.</li>
+      <li><b>Portfolio:</b> return, Sharpe, drawdown and beta against SPY; win rate, profit factor and average R on closed trades.</li>
+    </ul>
+
+    <h2 id="registered">Pre-registration</h2>
+    <p>With enough metrics, something always looks significant. To rule that out, the tests that count were written down on {{ REGISTERED|nice_date }}, before the first live run, each with a pass mark and a minimum sample. They're in the repository's history, so any later change would be visible.</p>
+    <div style="margin-top:14px">{{ hypotheses(hyps) }}</div>
+
+    <h2 id="lookahead">No look-ahead</h2>
+    <ul>
+      <li>Runs use prices through the close and fill at the next open. Today's bar only counts after 4:15 pm New York time.</li>
+      <li>Outcomes are written only once their horizon closes, and weights read only outcomes dated before the decision.</li>
+      <li>Headlines are limited to the week before the decision; anything stamped later is dropped.</li>
+      <li>There is no backfilled AI history. Past fundamentals and headlines can't be recovered as of their date, and a model may have read about the period in training, so the record is built forward, live.</li>
+    </ul>
+
+    <h2 id="integrity">Record integrity</h2>
+    <ul>
+      <li><b>Hash chain:</b> after each run, that day's signals, debates, orders, exits and equity mark are hashed (SHA-256) and chained to the previous day. Editing any past record breaks every link after it. The chain is re-verified on every build, and the result is on the <a href="audit.html">audit trail</a>.</li>
+      <li><b>Timestamps:</b> the database is committed to the repository after every run, so Git history independently dates each day's record.</li>
+      <li><b>Data checks:</b> before any new position, the run confirms price coverage, the benchmark close, enough history, and no suspect prints. A failure halts new entries for the day and is logged.</li>
+      <li><b>Versioning:</b> each run records its model, a fingerprint of every prompt, and the code commit, so a change in behavior can be traced to a change in the system.</li>
+    </ul>
+
+    <h2 id="limits">Limitations</h2>
+    <ul>
+      <li>Fifty names and a short record make every statistic noisy. Read t-statistics, not single days.</li>
+      <li>Today's large caps carry survivorship bias over long horizons.</li>
+      <li>Open-price fills and exact stop fills are idealized; real execution adds slippage.</li>
+      <li>Model outputs vary between runs. Each run's model and cost are logged.</li>
+    </ul>
+
+    <h2 id="stack">Stack and cost</h2>
+    <p>Python, pandas and SQLite. Agents run on Claude ({{ info.model }}) with JSON-schema structured outputs. Prices and fundamentals from Yahoo Finance, headlines from Google News. GitHub Actions runs the pipeline each weekday and publishes this site to GitHub Pages. A typical day is 5 analyst calls and up to {{ config.SHORTLIST * 3 }} debate calls, plus 3 per earnings report{% if info.avg_cost %}, averaging {{ info.avg_cost|money(2) }} per run{% endif %}.</p>
+
+    <h2 id="glossary">Glossary</h2>
+    <dl class="glossary">
+      {% for label, key in [('Hash chain', 'chain'), ('IC', 'ic'), ('t-stat', 'tstat'), ('Value added', 'edge'), ('Conviction', 'conviction'), ('Brier score', 'brier'), ('Excess return', 'excess'), ('ATR', 'atr'), ('R multiple', 'r'), ('Profit factor', 'pf'), ('Sharpe ratio', 'sharpe')] %}
+      <dt>{{ label }}</dt><dd>{{ TIPS[key] }}</dd>
+      {% endfor %}
+    </dl>
+  </div>
+</div>
+{% endblock %}

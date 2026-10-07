@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+        exclude-patterns: ["yfinance"] # breaks most often; gets its own pull request
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

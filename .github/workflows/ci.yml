@@ -1,0 +1,28 @@
+# Lint and the offline test suite on every push and pull request. No API key or network needed.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest ruff
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest
+      - name: Verify the published record
+        run: |
+          if [ -f data/quorum.db ]; then python -m quorum.ledger verify; else echo "no live record yet"; fi
