@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Stocks | {% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Stocks</h1>
+  <p>Look up any of the {{ config.UNIVERSE|length }} names Quorum covers, or compare two side by side: every analyst's latest score and reasoning, the composite rank, past debates and how they turned out.</p>
+</div>
+
+<section>
+  <div class="table-tools">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <label for="pick-a" class="sr-only">Stock</label>
+      <select id="pick-a"></select>
+      <span class="muted">vs.</span>
+      <label for="pick-b" class="sr-only">Compare with</label>
+      <select id="pick-b"><option value="">No comparison</option></select>
+    </div>
+    <span class="count">{% if stocks.date %}Scores as of {{ stocks.date|nice_date }}{% else %}No scores yet{% endif %}</span>
+  </div>
+  <div id="cards" class="halves"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="stock-data">{{ stocks|tojson }}</script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const D = Q.read("stock-data"), S = D.stocks, tickers = Object.keys(S).sort();
+  const a = document.getElementById("pick-a"), b = document.getElementById("pick-b"), cards = document.getElementById("cards");
+  for (const t of tickers) {
+    a.add(new Option(`${t}  ${S[t].name}`, t));
+    b.add(new Option(`${t}  ${S[t].name}`, t));
+  }
+  const esc = (x) => String(x ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const sgn = (x, d = 0) => (x == null ? "n/a" : (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d));
+  const pct = (x) => (x == null ? "pending" : sgn(x * 100, 1) + "%");
+  const tone = (x) => (x == null || x === 0 ? "" : x > 0 ? "pos" : "neg");
+  function card(t) {
+    const s = S[t];
+    const rows = D.agents.map((ag) => {
+      const v = s.scores[ag];
+      return `<tr${ag === "composite" ? ' class="lead"' : ""}><td>${esc(D.labels[ag])}</td><td class="n ${tone(v?.score)}">${v ? sgn(v.score, ag === "composite" ? 1 : 0) : "n/a"}</td><td class="why">${esc(v?.why || "")}</td></tr>`;
+    }).join("");
+    const deb = s.debates.length ? s.debates.map((d) =>
+      `<tr><td class="mono">${d.date}</td><td>${d.book === "core" ? "Core" : "Earnings"}</td><td class="n${d.conviction > {{ config.CONVICTION_ENTRY }} ? " gold" : ""}">${Math.round(d.conviction)}</td><td class="n ${tone(d.realized)}">${pct(d.realized)}</td><td class="why"><a href="debates/${d.date}.html#${d.book}-${t}" style="text-decoration:none">${esc(d.verdict)}</a></td></tr>`).join("")
+      : `<tr class="no-match"><td colspan="5">Not debated yet.</td></tr>`;
+    const held = s.held ? `<p class="note"><b style="color:var(--ink);font-weight:500">Held</b> since ${s.held.entry_date} at ${s.held.entry_price.toFixed(2)}, stop ${s.held.stop.toFixed(2)}.</p>` : "";
+    return `<div class="panel" style="min-width:0">
+      <div class="chart-head"><div><h2 class="mono">${t}</h2><div class="muted" style="font-size:13.5px">${esc(s.name)} · ${esc(s.sector)}</div></div>
+      <div style="text-align:right"><div class="mono" style="font-size:24px;font-weight:600">${s.rank ? "#" + s.rank : "n/a"}</div><div class="muted" style="font-size:12px">of ${tickers.length} today</div></div></div>
+      ${held}
+      <div class="table-wrap" style="margin-top:12px;box-shadow:none"><table><thead><tr><th>Analyst</th><th class="n">Score</th><th>Reasoning</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <h3 style="margin-top:18px">Debates</h3>
+      <div class="table-wrap" style="margin-top:8px;box-shadow:none"><table><thead><tr><th>Date</th><th>Book</th><th class="n">Conviction</th><th class="n">Realized vs SPY</th><th>Verdict</th></tr></thead><tbody>${deb}</tbody></table></div>
+    </div>`;
+  }
+  function show() {
+    cards.innerHTML = card(a.value) + (b.value && b.value !== a.value ? card(b.value) : "");
+    cards.style.gridTemplateColumns = b.value && b.value !== a.value ? "" : "minmax(0,1fr)";
+    try { history.replaceState(null, "", "#" + a.value + (b.value ? "-" + b.value : "")); } catch (e) {}
+  }
+  const [h1, h2] = location.hash.slice(1).split("-");
+  a.value = S[h1] ? h1 : (Object.entries(S).find(([, v]) => v.rank === 1)?.[0] || tickers[0]);
+  if (S[h2]) b.value = h2;
+  a.addEventListener("change", show); b.addEventListener("change", show);
+  show();
+});
+</script>
+{% endblock %}

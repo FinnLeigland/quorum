@@ -22,6 +22,7 @@ AGENT_LABEL |= {f"factor_{a}": f"{config.ANALYST_LABELS[a]} factor" for a in con
 NAV = [
     ("overview", "Overview", "index.html"),
     ("attribution", "Attribution", "attribution.html"),
+    ("stocks", "Stocks", "stocks.html"),
     ("debates", "Debates", "debates.html"),
     ("earnings", "Earnings", "earnings.html"),
     ("trades", "Trades", "trades.html"),
@@ -346,6 +347,44 @@ def audit(con) -> dict:
     return {"verify": ledger.verify(con), "runs": runs, "last_checks": runs[0]["checks"] if runs else []}
 
 
+def stock_data(con) -> dict:
+    """Everything the Stocks page needs, per ticker: latest scores, recent history, debates and trades."""
+    last = one(con, "SELECT MAX(date) AS d FROM signals WHERE agent = 'composite'")
+    last = last["d"] if last else None
+    agents = config.ANALYSTS + ["composite"]
+    out = {}
+    for t, (name, sector, etf) in config.UNIVERSE.items():
+        latest = (
+            {
+                r["agent"]: {"score": r["score"], "why": r["rationale"]}
+                for r in rows(
+                    con, "SELECT agent, score, rationale FROM signals WHERE date = ? AND ticker = ?", (last, t)
+                )
+            }
+            if last
+            else {}
+        )
+        hist = rows(con, "SELECT date, score FROM signals WHERE ticker = ? AND agent = 'composite' "
+                         "ORDER BY date DESC LIMIT 60", (t,))  # fmt: skip
+        debates = []
+        for d in rows(con, "SELECT date, book, conviction, decision, judge FROM debates WHERE ticker = ? "
+                           "ORDER BY date DESC LIMIT 10", (t,)):  # fmt: skip
+            horizon = config.CORE_HORIZON if d["book"] == "core" else config.EARNINGS_HORIZON
+            debates.append({"date": d["date"], "book": d["book"], "conviction": d["conviction"],
+                            "decision": d["decision"], "verdict": json.loads(d["judge"]).get("verdict"),
+                            "realized": _outcome(con, d["date"], t, horizon)})  # fmt: skip
+        trades = rows(con, "SELECT entry_date, exit_date, ret, exit_reason FROM trades WHERE ticker = ? "
+                           "ORDER BY exit_date DESC LIMIT 10", (t,))  # fmt: skip
+        held = one(con, "SELECT entry_date, entry_price, last_close, stop FROM positions WHERE ticker = ?", (t,))
+        out[t] = {"name": name, "sector": sector, "etf": etf,
+                  "scores": {a: latest.get(a) for a in agents},
+                  "history": list(reversed(hist)), "debates": debates, "trades": trades, "held": held}  # fmt: skip
+    comp = {t: v["scores"]["composite"]["score"] for t, v in out.items() if v["scores"].get("composite")}
+    for rank, t in enumerate(sorted(comp, key=comp.get, reverse=True), 1):
+        out[t]["rank"] = rank
+    return {"date": last, "stocks": out, "agents": agents, "labels": {a: AGENT_LABEL[a] for a in agents}}
+
+
 # ---------- Build ----------
 
 
@@ -391,6 +430,7 @@ def build(db_path: Path, out: Path) -> None:
     render("trades.html", "trades.html", page="trades", trades=trades_table(con), holdings=holdings(con))
     render("method.html", "method.html", page="method")
     render("audit.html", "audit.html", page="audit", trail=trail)
+    render("stocks.html", "stocks.html", page="stocks", stocks=stock_data(con))
     print(f"built {out} ({len(dates)} debate days)")
 
 
