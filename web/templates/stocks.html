@@ -7,6 +7,23 @@
 </div>
 
 <section>
+  <div class="sec-head"><div><h2>Daily comparisons</h2><p>Two or three pairs Quorum picks by rule after each run, written up from the analysts' scores. Click one to open it below.</p></div></div>
+  {% if stocks.comparisons %}
+  <div class="verdicts">
+    {% for c in stocks.comparisons %}
+    <a href="#{{ c.pair }}" class="cmp" data-pair="{{ c.pair }}">
+      <span class="tk">{{ c.a.ticker }}<br><span class="muted" style="font-weight:400">vs {{ c.b.ticker }}</span></span>
+      <span class="v" style="-webkit-line-clamp:3">{{ c.note }}</span>
+      <span class="c" style="font-size:13px">{{ c.date|nice_date("%b %-d") }}<small>{{ c.reason }}</small></span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty"><div><b>No comparisons yet</b>They start with the first daily run.</div></div>
+  {% endif %}
+</section>
+
+<section>
   <div class="table-tools">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <label for="pick-a" class="sr-only">Stock</label>
@@ -56,12 +73,18 @@ document.addEventListener("DOMContentLoaded", () => {
   function show() {
     cards.innerHTML = card(a.value) + (b.value && b.value !== a.value ? card(b.value) : "");
     cards.style.gridTemplateColumns = b.value && b.value !== a.value ? "" : "minmax(0,1fr)";
-    try { history.replaceState(null, "", "#" + a.value + (b.value ? "-" + b.value : "")); } catch (e) {}
+    try { history.replaceState(null, "", "#" + a.value + (b.value ? "~" + b.value : "")); } catch (e) {}
   }
-  const [h1, h2] = location.hash.slice(1).split("-");
+  const [h1, h2] = decodeURIComponent(location.hash.slice(1)).split("~");
   a.value = S[h1] ? h1 : (Object.entries(S).find(([, v]) => v.rank === 1)?.[0] || tickers[0]);
   if (S[h2]) b.value = h2;
   a.addEventListener("change", show); b.addEventListener("change", show);
+  document.querySelectorAll("a.cmp").forEach((el) => el.addEventListener("click", (e) => {
+    e.preventDefault();
+    const [x, y] = el.dataset.pair.split("~");
+    a.value = x; b.value = y; show();
+    cards.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
   show();
 });
 </script>

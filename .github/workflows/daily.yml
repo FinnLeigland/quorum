@@ -4,6 +4,8 @@
 #   1. Settings > Secrets and variables > Actions > New repository secret: ANTHROPIC_API_KEY
 #   2. Settings > Pages > Build and deployment > Source: GitHub Actions
 #   3. Actions > Daily run > Run workflow (starts the record today instead of waiting for the schedule)
+# Optional, to receive the daily comparisons: NTFY_TOPIC (push via the free ntfy app), and/or
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, DIGEST_EMAIL_TO (email)
 name: Daily run
 
 on:
@@ -42,6 +44,12 @@ jobs:
         if: github.event_name != 'push'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
         run: python -m quorum.pipeline run
 
       - name: Commit the record

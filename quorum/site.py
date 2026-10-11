@@ -382,7 +382,16 @@ def stock_data(con) -> dict:
     comp = {t: v["scores"]["composite"]["score"] for t, v in out.items() if v["scores"].get("composite")}
     for rank, t in enumerate(sorted(comp, key=comp.get, reverse=True), 1):
         out[t]["rank"] = rank
-    return {"date": last, "stocks": out, "agents": agents, "labels": {a: AGENT_LABEL[a] for a in agents}}
+    comps = []
+    for r in rows(con, "SELECT date, data FROM comparisons ORDER BY date DESC, rowid LIMIT 15"):
+        comps.append({**json.loads(r["data"]), "date": r["date"]})
+    return {
+        "date": last,
+        "stocks": out,
+        "agents": agents,
+        "comparisons": comps,
+        "labels": {a: AGENT_LABEL[a] for a in agents},
+    }
 
 
 # ---------- Build ----------

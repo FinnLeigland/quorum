@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS trades (
     pnl REAL, ret REAL, r_multiple REAL, exit_reason TEXT, debate_id INTEGER, days_held INTEGER
 );
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS comparisons (
+    date TEXT, pair TEXT, reason TEXT, note TEXT, data TEXT,  -- the daily side-by-side reads, data is JSON
+    PRIMARY KEY (date, pair)
+);
 CREATE TABLE IF NOT EXISTS ledger (
     date TEXT PRIMARY KEY, digest TEXT, prev TEXT, hash TEXT, sealed_at TEXT
 );

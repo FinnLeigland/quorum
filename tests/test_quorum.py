@@ -1,10 +1,12 @@
 """Offline tests on synthetic prices: no network, no API key."""
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from quorum import checks, committee, config, db, factors, hypotheses, ledger, pipeline, portfolio, scoring
+from quorum import checks, committee, compare, config, db, factors, hypotheses, ledger, pipeline, portfolio, scoring
 from quorum.agents import AgentError, MockAgents, _clean_scores
 
 
@@ -204,3 +206,14 @@ def test_old_databases_gain_new_columns(tmp_path):
     con = db.connect(path)
     cols = {r["name"] for r in con.execute("PRAGMA table_info(runs)")}
     assert {"prompt_version", "code_version", "checks", "halted"} <= cols
+
+
+def test_daily_comparisons_are_distinct_and_saved(px, con):
+    days = _run_days(con, px, n=6)
+    d = days[305].strftime("%Y-%m-%d")
+    comps = db.rows(con, "SELECT * FROM comparisons WHERE date = ?", (d,))
+    assert 2 <= len(comps) <= 3
+    pairs = [frozenset(c["pair"].split("~")) for c in comps]
+    assert len(set(pairs)) == len(pairs) and all(len(p) == 2 for p in pairs)
+    title, body = compare.message(d, [json.loads(c["data"]) for c in comps])
+    assert d in title and "stocks.html#" in body

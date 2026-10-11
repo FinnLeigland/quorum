@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from quorum import checks, committee, config, data, db, factors, ledger, portfolio, scoring
+from quorum import checks, committee, compare, config, data, db, factors, ledger, notify, portfolio, scoring
 from quorum.agents import PROMPT_VERSION, Agents, MockAgents
 
 NY = ZoneInfo("America/New_York")
@@ -215,6 +215,10 @@ def run_day(con, px, fund, earn, agents, day: pd.Timestamp, fetch_news: bool = T
             portfolio.queue_buy(con, as_of, t, "earnings", did, float(f.at[t, "atr"]), f"earnings conviction {conv}")
             log.append(f"queued earnings buy {t} (conviction {conv})")
 
+    comps = compare.build(con, as_of, agents) if scores else []
+    if comps:
+        log.append(f"wrote {len(comps)} comparisons: {', '.join(c['pair'] for c in comps)}")
+
     usage = agents.llm.usage if agents.llm else None
     con.execute(
         """INSERT OR REPLACE INTO runs (date, started_at, finished_at, mock, model, input_tokens, output_tokens,
@@ -234,7 +238,7 @@ def run_day(con, px, fund, earn, agents, day: pd.Timestamp, fetch_news: bool = T
     ledger.seal(con, as_of)
     for line in log:
         print("  " + line)
-    return {"date": as_of, "debates": debated, "events": len(events)}
+    return {"date": as_of, "debates": debated, "events": len(events), "comparisons": comps}
 
 
 def last_complete_session(close: pd.DataFrame) -> pd.Timestamp:
@@ -261,7 +265,19 @@ def cmd_run(args) -> int:
     earn = data.earnings_dates(list(config.UNIVERSE))
     agents = MockAgents() if args.mock else Agents()
     t0 = time.time()
-    run_day(con, px, fund, earn, agents, day, fetch_news=not args.mock)
+    result = run_day(con, px, fund, earn, agents, day, fetch_news=not args.mock)
+    comps = result.get("comparisons") if result else None
+    if comps and not args.mock:
+        title, body = compare.message(day.strftime("%Y-%m-%d"), comps)
+        try:
+            used = notify.send(
+                title, body, click=f"https://finnleigland.github.io/quorum/stocks.html#{comps[0]['pair']}"
+            )
+            print(
+                f"sent comparisons via {', '.join(used)}" if used else "no delivery channel set (NTFY_TOPIC or SMTP_*)"
+            )
+        except Exception as e:  # delivery failing must not fail the run; the record is already sealed
+            print(f"delivery failed: {e}")
     if agents.llm:
         u = agents.llm.usage
         print(f"done in {time.time() - t0:.0f}s: {u.calls} calls, ${u.cost(agents.llm.model):.2f}")
