@@ -33,8 +33,8 @@
       <div><h3>Grade</h3><p>Scores whose 5- or 21-session horizon has closed are matched to the realized return over SPY.</p></div>
       <div><h3>Score</h3><p>Five analysts each score all {{ config.UNIVERSE|length }} names from &minus;100 to +100 using only their own evidence.</p></div>
       <div><h3>Weigh</h3><p>The portfolio manager combines them by trailing IC and queues exits for names the committee has turned against.</p></div>
-      <div><h3>Debate</h3><p>The top {{ config.SHORTLIST }} names not already held go to a bull, a bear and a judge. Conviction above {{ config.CONVICTION_ENTRY }} queues a buy.</p></div>
-      <div><h3>Earnings</h3><p>Every name that reported since the last close gets the same debate on a five-session horizon.</p></div>
+      <div><h3>Debate</h3><p>The top {{ config.SHORTLIST }} names not already held, and not debated in the last {{ config.REDEBATE_AFTER }} sessions, go to a bull, a bear and a judge. Conviction above {{ config.CONVICTION_ENTRY }} queues a buy.</p></div>
+      <div><h3>Earnings</h3><p>Up to {{ config.MAX_EARNINGS_DEBATES }} names that reported since the last close, largest day-one moves first, get the same debate on a five-session horizon.</p></div>
       <div><h3>Publish</h3><p>The database is committed and this site is rebuilt from it.</p></div>
     </div>
 
@@ -115,7 +115,7 @@
     </ul>
 
     <h2 id="stack">Stack and cost</h2>
-    <p>Python, pandas and SQLite. Agents run on Claude ({{ info.model }}) with JSON-schema structured outputs. Prices and fundamentals from Yahoo Finance, headlines from Google News. GitHub Actions runs the pipeline each weekday and publishes this site to GitHub Pages. A typical day is 5 analyst calls and up to {{ config.SHORTLIST * 3 }} debate calls, plus 3 per earnings report{% if info.avg_cost %}, averaging {{ info.avg_cost|money(2) }} per run{% endif %}.</p>
+    <p>Python, pandas and SQLite. Agents run on Claude ({{ info.model }}) with JSON-schema structured outputs. Prices and fundamentals from Yahoo Finance, headlines from Google News. GitHub Actions runs the pipeline each weekday and publishes this site to GitHub Pages. A typical day is 5 analyst calls and up to {{ config.SHORTLIST * 3 }} debate calls, plus 3 per earnings report. The run is unattended, so its requests go through the Message Batches API at half price; prompts are compact JSON; and a daily cap of {{ config.MAX_DAILY_USD|money(0) }} stops spending outright{% if info.avg_cost %}. Runs have averaged {{ info.avg_cost|money(2) }}{% endif %}.</p>
 
     <h2 id="glossary">Glossary</h2>
     <dl class="glossary">

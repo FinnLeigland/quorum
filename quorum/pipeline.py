@@ -19,11 +19,13 @@ are still managed, nothing new is opened, and the failure is written to the run 
 import argparse
 import os
 import random
+import shutil
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -84,11 +86,22 @@ def find_events(earn: dict[str, pd.DataFrame], days: pd.DatetimeIndex, as_of: pd
     return events
 
 
+def next_earnings(df, days: pd.DatetimeIndex, as_of: pd.Timestamp) -> dict | None:
+    """The next scheduled report after `as_of`, if within 45 days: the judge treats it as event risk."""
+    if df is None or getattr(df, "empty", True):
+        return None
+    future = sorted(d for d in df.index if d.normalize() > as_of)
+    if not future or (future[0] - as_of).days > 45:
+        return None
+    sessions = len(pd.bdate_range(as_of + pd.Timedelta(days=1), future[0].normalize()))
+    return {"date": future[0].strftime("%Y-%m-%d"), "sessions_away": sessions}
+
+
 def _dossier(t, f, macro, scores, comp, comp_rank, headlines, as_of) -> dict:
     name, sector, etf = config.UNIVERSE[t]
     cols = sorted({c for cs in factors.EVIDENCE.values() for c in cs} | {"price", "market_cap_bn", "atr_pct"})
     evidence = {c: (f.at[t, c] if isinstance(f.at[t, c], str) else None if pd.isna(f.at[t, c]) else
-                    round(float(f.at[t, c]), 4)) for c in cols}  # fmt: skip
+                    round(float(f.at[t, c]), 3)) for c in cols}  # fmt: skip
     return {
         "ticker": t,
         "name": name,
@@ -100,7 +113,7 @@ def _dossier(t, f, macro, scores, comp, comp_rank, headlines, as_of) -> dict:
         "evidence": evidence,
         "macro": _round({k: v for k, v in macro.items() if k != "sector_vs_spy_3m"}),
         "sector_etf_vs_spy_3m": round(macro["sector_vs_spy_3m"].get(etf, 0), 4),
-        "headlines": headlines,
+        "headlines": headlines[:6],
     }
 
 
@@ -149,39 +162,15 @@ def run_day(con, px, fund, earn, agents, day: pd.Timestamp, fetch_news: bool = T
         committee.save(con, as_of, scores, weights, comp, base)
     log += portfolio.mark(con, sliced, day, rank)
 
-    # Core book: debate the top of the composite
-    debated = 0
+    # Core book: the top of the composite, skipping names held, queued, or debated in the last few sessions
+    names = []
     if comp:
-        names = committee.shortlist(comp, committee.held_or_pending(con))
-        news = {}
-        if fetch_news:
-            with ThreadPoolExecutor(max_workers=8) as pool:
-                news = dict(
-                    zip(names, pool.map(lambda t: data.headlines(t, config.UNIVERSE[t][0], as_of), names), strict=True)
-                )
-        dossiers = {t: _dossier(t, f, macro, scores, comp, rank, news.get(t, []), as_of) for t in names}
-        print(f"{as_of}: debating {', '.join(names)}")
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            results = dict(
-                zip(names, pool.map(lambda t: agents.debate("core", dossiers[t], as_of), names), strict=True)
-            )
-        ranked = sorted((r["judge"]["conviction"], t) for t, r in results.items() if r)
-        slots = portfolio.open_slots(con, "core")
-        for conv, t in reversed(ranked):
-            decision = "pass"
-            if conv > config.CONVICTION_ENTRY:
-                decision = "enter" if slots > 0 else "full"
-            did = _save_debate(con, as_of, t, "core", dossiers[t], results[t], decision)
-            debated += 1
-            if decision == "enter":
-                slots -= 1
-                portfolio.queue_buy(con, as_of, t, "core", did, float(f.at[t, "atr"]), f"conviction {conv}")
-                log.append(f"queued buy {t} (conviction {conv})")
-
-    # Earnings desk
-    events = [] if halted else find_events(earn, sliced["Close"].index, day)
+        skip = committee.held_or_pending(con) | committee.recently_debated(con, as_of)
+        names = committee.shortlist(comp, skip)
+    # Earnings desk: reports since the last close, largest day-one moves first
     close, open_, vol = sliced["Close"], sliced["Open"], sliced["Volume"]
-    for ev in events:
+    events = []
+    for ev in [] if halted else find_events(earn, close.index, day):
         t = ev["ticker"]
         if t not in close or len(close) < 22:
             continue
@@ -192,20 +181,61 @@ def run_day(con, px, fund, earn, agents, day: pd.Timestamp, fetch_news: bool = T
         ev["day1_excess_pct"] = round((r1 - b1) * 100, 2)
         ev["gap_pct"] = round((open_[t].iloc[-1] / prev - 1) * 100, 2)
         ev["volume_vs_20d"] = round(float(vol[t].iloc[-1] / vol[t].iloc[-21:-1].mean()), 2)
-        heads = data.headlines(t, config.UNIVERSE[t][0], as_of, days=3) if fetch_news else []
-        dossier = _dossier(t, f, macro, scores, comp, rank or {}, heads, as_of) if scores else {
-            "ticker": t, "name": config.UNIVERSE[t][0], "as_of": as_of, "headlines": heads}  # fmt: skip
-        dossier["event"] = ev
-        print(f"{as_of}: earnings desk on {t}")
-        result = agents.debate("earnings", dossier, as_of)
+        events.append(ev)
+    events = sorted(events, key=lambda e: -abs(e["day1_excess_pct"]))[: config.MAX_EARNINGS_DEBATES]
+
+    news = {}
+    if fetch_news:
+        wanted = [(t, 7) for t in names] + [(e["ticker"], 3) for e in events]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            got = list(pool.map(lambda x: data.headlines(x[0], config.UNIVERSE[x[0]][0], as_of, days=x[1]), wanted))
+        news = {
+            f"{'core' if i < len(names) else 'earnings'}-{t}": h
+            for i, ((t, _), h) in enumerate(zip(wanted, got, strict=True))
+        }
+
+    def dossier_for(t, book):
+        d = _dossier(t, f, macro, scores, comp, rank or {}, news.get(f"{book}-{t}", []), as_of) if scores else {
+            "ticker": t, "name": config.UNIVERSE[t][0], "as_of": as_of, "headlines": news.get(f"{book}-{t}", [])}  # fmt: skip
+        nxt = next_earnings(earn.get(t), close.index, day)
+        if nxt:
+            d["next_earnings"] = nxt
+        return d
+
+    core_d = {t: dossier_for(t, "core") for t in names}
+    earn_d = {}
+    for ev in events:
+        earn_d[ev["ticker"]] = {**dossier_for(ev["ticker"], "earnings"), "event": ev}
+        earn_d[ev["ticker"]].pop("next_earnings", None)  # it just reported
+    items = [("core", d) for d in core_d.values()] + [("earnings", d) for d in earn_d.values()]
+    if items:
+        print(f"{as_of}: debating {', '.join(names) or 'none'}; earnings {', '.join(earn_d) or 'none'}")
+    results = agents.debate_many(items, as_of) if items else {}
+
+    debated = 0
+    ranked = sorted((r["judge"]["conviction"], t) for t in names if (r := results.get(f"core-{t}")))
+    slots = portfolio.open_slots(con, "core")
+    for conv, t in reversed(ranked):
+        decision = "pass"
+        if conv > config.CONVICTION_ENTRY:
+            decision = "enter" if slots > 0 else "full"
+        did = _save_debate(con, as_of, t, "core", core_d[t], results[f"core-{t}"], decision)
+        debated += 1
+        if decision == "enter":
+            slots -= 1
+            portfolio.queue_buy(con, as_of, t, "core", did, float(f.at[t, "atr"]), f"conviction {conv}")
+            log.append(f"queued buy {t} (conviction {conv})")
+
+    for ev in events:
+        t = ev["ticker"]
+        result = results.get(f"earnings-{t}")
         if not result:
             continue
         conv = result["judge"]["conviction"]
-        held = t in committee.held_or_pending(con)
         decision = "pass"
-        if conv > config.CONVICTION_ENTRY and not held:
+        if conv > config.CONVICTION_ENTRY and t not in committee.held_or_pending(con):
             decision = "enter" if portfolio.open_slots(con, "earnings") > 0 else "full"
-        did = _save_debate(con, as_of, t, "earnings", dossier, result, decision)
+        did = _save_debate(con, as_of, t, "earnings", earn_d[t], result, decision)
         con.execute(
             "INSERT OR REPLACE INTO earnings_events VALUES (?,?,?,?,?,?,?,?)",
             (as_of, t, ev["released"], ev["eps_estimate"], ev["eps_actual"], ev["surprise_pct"],
@@ -253,7 +283,10 @@ def last_complete_session(close: pd.DataFrame) -> pd.Timestamp:
 def cmd_run(args) -> int:
     if args.mock and str(args.db) == str(config.DB_PATH):
         sys.exit("Refusing to write demo (--mock) data into the live database. Pass --db data/demo.db.")
-    con = db.connect(args.db)
+    live, work = Path(args.db), Path(str(args.db) + ".tmp")
+    if live.exists():
+        shutil.copy2(live, work)  # the day runs on a copy; the record changes only if the whole day completes
+    con = db.connect(work)
     start = (pd.Timestamp.today() - pd.DateOffset(years=2)).strftime("%Y-%m-%d")
     print("fetching prices")
     px = data.prices(ALL, start)
@@ -265,7 +298,14 @@ def cmd_run(args) -> int:
     earn = data.earnings_dates(list(config.UNIVERSE))
     agents = MockAgents() if args.mock else Agents()
     t0 = time.time()
-    result = run_day(con, px, fund, earn, agents, day, fetch_news=not args.mock)
+    try:
+        result = run_day(con, px, fund, earn, agents, day, fetch_news=not args.mock)
+        con.close()
+        os.replace(work, live)
+    except BaseException:
+        con.close()
+        work.unlink(missing_ok=True)
+        raise
     comps = result.get("comparisons") if result else None
     if comps and not args.mock:
         title, body = compare.message(day.strftime("%Y-%m-%d"), comps)

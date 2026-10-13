@@ -86,6 +86,17 @@ def shortlist(comp: dict[str, float], exclude: set[str], k: int = config.SHORTLI
     return [t for _, t in ranked[:k]]
 
 
+def recently_debated(con: sqlite3.Connection, as_of: str, sessions: int = config.REDEBATE_AFTER) -> set[str]:
+    """Core names debated in the last `sessions` runs: their call is still open, so a new debate adds little."""
+    recent = [r["date"] for r in rows(con, "SELECT date FROM runs WHERE date < ? ORDER BY date DESC LIMIT ?",
+                                      (as_of, sessions))]  # fmt: skip
+    if not recent:
+        return set()
+    marks = ",".join("?" * len(recent))
+    return {r["ticker"] for r in rows(con, f"SELECT DISTINCT ticker FROM debates WHERE book = 'core' AND date IN ({marks})",
+                                      recent)}  # fmt: skip
+
+
 def held_or_pending(con: sqlite3.Connection) -> set[str]:
     held = {r["ticker"] for r in rows(con, "SELECT ticker FROM positions")}
     pend = {r["ticker"] for r in rows(con, "SELECT ticker FROM orders WHERE status = 'pending' AND side = 'buy'")}

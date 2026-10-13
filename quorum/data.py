@@ -4,6 +4,7 @@ Every fetch fails soft: a missing ticker or a failed request returns an empty re
 """
 
 import re
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -26,8 +27,18 @@ _JUNK = re.compile(r"(stock price|stock quote|price target|options|\bETF\b|top \
 
 
 def prices(tickers: list[str], start: str, end: str | None = None) -> dict[str, pd.DataFrame]:
-    """Daily split- and dividend-adjusted OHLCV. Returns {field: DataFrame[date x ticker]}."""
-    raw = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False, threads=True, group_by="column")
+    """Daily split- and dividend-adjusted OHLCV. Returns {field: DataFrame[date x ticker]}.
+
+    Yahoo sometimes drops tickers or returns nothing on a busy evening, so a thin result is retried twice."""
+    raw = None
+    for attempt in range(3):
+        raw = yf.download(tickers, start=start, end=end, auto_adjust=True, progress=False, threads=True,
+                          group_by="column")  # fmt: skip
+        got = 0 if raw is None or raw.empty else int(raw["Close"].iloc[-1:].notna().sum(axis=1).max())
+        if got >= 0.95 * len(tickers):
+            break
+        if attempt < 2:
+            time.sleep(20 * (attempt + 1))
     if raw is None or raw.empty:
         return {}
     raw.index = pd.DatetimeIndex(raw.index).tz_localize(None).normalize()

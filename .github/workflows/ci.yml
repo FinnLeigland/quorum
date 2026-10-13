@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -23,6 +23,10 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
+      - name: Build and check the site
+        run: |
+          python -m quorum.site
+          python -m quorum.sitecheck --dir _site
       - name: Verify the published record
         run: |
           if [ -f data/quorum.db ]; then python -m quorum.ledger verify; else echo "no live record yet"; fi

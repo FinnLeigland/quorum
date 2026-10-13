@@ -165,7 +165,7 @@ def evidence_table(f: pd.DataFrame, style: str) -> list[dict]:
             if isinstance(v, str):
                 row[col] = v
             elif pd.notna(v):
-                row[col] = round(float(v), 4)
+                row[col] = round(float(v), 3)
                 if col != "sector":
                     row[f"{col}_pctile"] = round(float(f[col].rank(pct=True)[t]), 2)
             else:

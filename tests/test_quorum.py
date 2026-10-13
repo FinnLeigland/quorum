@@ -217,3 +217,125 @@ def test_daily_comparisons_are_distinct_and_saved(px, con):
     assert len(set(pairs)) == len(pairs) and all(len(p) == 2 for p in pairs)
     title, body = compare.message(d, [json.loads(c["data"]) for c in comps])
     assert d in title and "stocks.html#" in body
+
+
+# ---------- API layer, with a fake client (no network) ----------
+
+from types import SimpleNamespace as NS  # noqa: E402
+
+from quorum import llm as L  # noqa: E402
+from quorum import sitecheck  # noqa: E402
+from quorum.agents import _clip, _fmt  # noqa: E402
+
+
+def _msg(payload):
+    usage = NS(input_tokens=1000, output_tokens=500, cache_creation_input_tokens=0, cache_read_input_tokens=0)
+    return NS(stop_reason="end_turn", content=[NS(type="text", text=json.dumps(payload))], usage=usage)
+
+
+class FakeClient:
+    """Batches finish after `polls` checks; `outcome` maps custom_id to succeeded / server_error / invalid / hang."""
+
+    def __init__(self, outcome=None, polls=1):
+        self.outcome, self.polls, self.direct = outcome or {}, polls, []
+        fake = self
+
+        class Batches:
+            def create(self, requests):
+                fake.ids = [r["custom_id"] for r in requests]
+                fake.checks, fake.cancelled = 0, False
+                return NS(id="b1", processing_status="in_progress")
+
+            def retrieve(self, _id):
+                fake.checks += 1
+                ended = fake.cancelled or fake.checks >= fake.polls
+                return NS(id="b1", processing_status="ended" if ended else "in_progress")
+
+            def cancel(self, _id):
+                fake.cancelled = True
+
+            def results(self, _id):
+                for cid in fake.ids:
+                    kind = fake.outcome.get(cid, "succeeded")
+                    if kind == "succeeded":
+                        yield NS(custom_id=cid, result=NS(type="succeeded", message=_msg({"id": cid})))
+                    elif kind == "invalid":
+                        yield NS(custom_id=cid, result=NS(type="errored", error=NS(error=NS(type="invalid_request"))))
+                    elif kind == "server_error":
+                        yield NS(custom_id=cid, result=NS(type="errored", error=NS(error=NS(type="api_error"))))
+                    else:
+                        yield NS(custom_id=cid, result=NS(type="canceled"))
+
+        class Direct:
+            def create(self, **kw):
+                fake.direct.append(kw["messages"][0]["content"])
+                return _msg({"direct": True})
+
+        self.messages = NS(batches=Batches())
+        self.beta = NS(messages=Direct())
+
+
+def _llm(client, **kw):
+    x = L.LLM(model="claude-opus-5-5", client=client)
+    x.batch, x.poll_seconds, x.batch_wait, x.budget = True, 0, kw.get("wait", 60), kw.get("budget", 100)
+    return x
+
+
+JOBS = [L.Job(f"j{i}", "sys", f"prompt {i}", {"type": "object"}) for i in range(3)]
+
+
+def test_batch_runs_everything_at_half_price():
+    x = _llm(FakeClient())
+    out = x.run_many(JOBS)
+    assert all(out[j.id] == {"id": j.id} for j in JOBS)
+    assert x.usage.batched_calls == 3
+    assert x.usage.cost() == pytest.approx(3 * 0.5 * (1000 * 4 + 500 * 20) / 1e6)
+
+
+def test_batch_errors_retry_directly_but_rejected_requests_do_not():
+    fake = FakeClient({"j1": "server_error", "j2": "invalid"})
+    out = _llm(fake).run_many(JOBS)
+    assert out["j0"] == {"id": "j0"}
+    assert out["j1"] == {"direct": True}  # retried as a normal request
+    assert isinstance(out["j2"], L.AgentError)  # a bad request would fail again: not retried
+    assert fake.direct == ["prompt 1"]
+
+
+def test_slow_batch_is_cancelled_and_finished_directly():
+    fake = FakeClient({"j0": "hang", "j1": "hang", "j2": "hang"}, polls=10**6)
+    out = _llm(fake, wait=0).run_many(JOBS)
+    assert fake.cancelled
+    assert all(out[j.id] == {"direct": True} for j in JOBS)
+
+
+def test_daily_budget_stops_further_calls():
+    x = _llm(FakeClient(), budget=0.001)
+    x.batch = False
+    x.run_many(JOBS[:1])  # spends about $0.014
+    out = x.run_many(JOBS)
+    assert all(isinstance(v, L.AgentError) and "budget" in str(v) for v in out.values())
+
+
+def test_prompts_are_compact_and_text_is_clipped():
+    assert _fmt({"a": 1, "b": None, "c": [float("nan"), 2], "d": {"e": None}}) == '{"a":1,"c":[2],"d":{}}'
+    long = "word " * 200
+    clipped = _clip(long, 50)
+    assert len(clipped) <= 51 and clipped.endswith("\u2026")
+    assert _clip("short", 50) == "short"
+
+
+def test_names_debated_recently_are_not_debated_again(px, con):
+    _run_days(con, px, n=3)
+    last = db.one(con, "SELECT MAX(date) d FROM runs")["d"]
+    recent = committee.recently_debated(con, "9999-12-31")
+    debated = {r["ticker"] for r in db.rows(con, "SELECT ticker FROM debates WHERE book='core' AND date=?", (last,))}
+    assert debated <= recent
+
+
+def test_sitecheck_flags_leaks_and_broken_links(tmp_path):
+    for name in sitecheck.PAGES:
+        (tmp_path / name).write_text("<title>Quorum</title><p>fine</p>")
+    assert sitecheck.check(tmp_path) == []
+    (tmp_path / "index.html").write_text('<title>Q</title><p>Return nan%</p><a href="gone.html">x</a>')
+    problems = sitecheck.check(tmp_path)
+    assert any("'nan'" in p for p in problems) and any("broken link gone.html" in p for p in problems)

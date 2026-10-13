@@ -9,6 +9,13 @@ SITE_DIR = ROOT / "_site"
 
 MODEL = os.environ.get("QUORUM_MODEL", "claude-opus-5-5")
 
+# API spend controls (see quorum/llm.py)
+USE_BATCH = os.environ.get("QUORUM_BATCH", "1") != "0"  # Message Batches: half price, results within minutes usually
+BATCH_WAIT_MIN = float(os.environ.get("QUORUM_BATCH_WAIT_MIN", "90"))  # then cancel and finish the rest directly
+MAX_DAILY_USD = float(os.environ.get("QUORUM_MAX_DAILY_USD", "6"))  # hard stop on a single day's spend
+REDEBATE_AFTER = 5  # sessions before a core name can be debated again (its 21-day call is still open)
+MAX_EARNINGS_DEBATES = 4  # per day, the reports with the largest day-one moves first
+
 # Shown in the site header and footer.
 PROJECT = "Quorum"
 AUTHOR = os.environ.get("QUORUM_AUTHOR", "Finn Leigland")
