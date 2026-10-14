@@ -5,17 +5,17 @@ description = "Multi-agent equity research desk: five AI style analysts, a bull/
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "anthropic>=1.11",
-    "feedparser>=6.0",
-    "jinja2>=3.1",
-    "numpy>=2.0",
-    "pandas>=2.2",
-    "requests>=2.32",
+    "anthropic>=1.13.0",
+    "feedparser>=6.0.14",
+    "jinja2>=3.1.6",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "requests>=2.34.2",
     "yfinance>=0.2.50",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.8"]
+dev = ["pytest>=9.1.1", "ruff>=0.17.0"]
 
 [tool.ruff]
 line-length = 120
